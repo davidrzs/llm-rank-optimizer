@@ -121,7 +121,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate the performance of the model")
     parser.add_argument("--model_path", type=str, help="Path to the model", default="meta-llama/Llama-2-7b-chat-hf")
     parser.add_argument("--sts_dir", type=str, help="Director containing product descriptions with STS inserted", default="results")
-    parser.add_argument("--catalog", type=str, default="coffee_machines", choices=["coffee_machines", "books", "cameras","election_articles"], help="The product catalog to use.")
+    parser.add_argument("--catalog", type=str, default="coffee_machines", choices=["coffee_machines", "books", "cameras","election_articles_candidate_recommendation","election_articles","election_articles_name","election_articles_incognito"], help="The product catalog to use.")
     parser.add_argument("--prod_idx", type=int, help="Index of the product to rank", default=3)
     parser.add_argument("--num_iter", type=int, help="Number of iterations to run", default=50)
     parser.add_argument("--prod_ord", type=str, choices=["random", "fixed"], help="Order of products during evaluation", default="random")
@@ -160,6 +160,16 @@ if __name__ == "__main__":
         catalog = "data/election_articles.jsonl"
         if user_msg_type == "default":
             user_msg = "I am looking for an article. Can I get some recommendations?"
+        elif user_msg_type == "custom":
+            user_msg = "What's the latest news on the election?"
+    elif args.catalog == "election_articles_incognito":
+        catalog = "data/election_articles_incognito.jsonl"
+        if user_msg_type == "default":
+            user_msg = "Can you give me a list of recent news on the election?"
+        elif user_msg_type == "custom":
+            user_msg = "Can you give me a list of recent news on the election?"
+    else:
+        raise ValueError("Invalid catalog.")
 
     # if args.catalog == "coffee_machines":
     #     catalog = "data/coffee_machines.jsonl"

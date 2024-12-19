@@ -26,6 +26,7 @@ catalog_names = {
     'cameras': 'Cameras',
     # 'books': 'Books',
     'election_articles': 'Political Articles',
+    'election_articles_incognito': 'Political Articles (Incognito)',
 }
 
 for mode in ['self', 'transfer']:

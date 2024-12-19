@@ -1,6 +1,6 @@
 #!/bin/bash
 
-catalogs=("coffee_machines" "cameras" "books" "election_articles")
+catalogs=("coffee_machines" "cameras" "books" "election_articles" "election_articles_incognito")
 
 modes=("self" "transfer")
 
