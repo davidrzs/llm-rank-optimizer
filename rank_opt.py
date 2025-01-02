@@ -438,7 +438,7 @@ if __name__ == "__main__":
         if user_msg_type == "default":
             user_msg = "Can you give me a list of recent news on the election?"
         elif user_msg_type == "custom":
-            user_msg = "Can you give me a list of recent news on the election?"
+            user_msg = "I am looking for an article. Can I get some recommendations?"
     else:
         raise ValueError("Invalid catalog.")
     num_iter = args.num_iter

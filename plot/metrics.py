@@ -21,63 +21,81 @@ args = argparser.parse_args()
 input_dir = args.input_dir
 num_products = args.num_products
 
+# catalog_names = {
+#     'coffee_machines': ('Coffee Machines', ['default']),
+#     'cameras': ('Cameras', ['default']),
+#     # 'books': ('Books', ['default']),
+#     'election_articles': ('Political Articles', ['default']),
+#     'election_articles_incognito': ('Political Articles (Incognito)', ['default', 'custom']),
+# }
+
 catalog_names = {
-    'coffee_machines': 'Coffee Machines',
-    'cameras': 'Cameras',
-    # 'books': 'Books',
-    'election_articles': 'Political Articles',
-    'election_articles_incognito': 'Political Articles (Incognito)',
+    'coffee_machines': ('Coffee Machines', ['default']),
+    'cameras': ('Cameras', ['default']),
+    # 'books': ('Books', ['default']),
+    # 'election_articles': ('Political Articles', ['default']),
+    'election_articles_incognito': ('Political Articles', ['default']),
 }
 
 for mode in ['self', 'transfer']:
     ranks_df = pd.DataFrame(columns=['Catalog', 'Before', 'After','Product'])
-    for catalog in catalog_names.keys():
+    for catalog, (display_name, types) in catalog_names.items():
+        for type_path in types:
+            path_to_products = os.path.join(input_dir, catalog, mode, type_path)
+            
+            if not os.path.exists(path_to_products):
+                print(f"Warning: Directory {path_to_products} does not exist, skipping...")
+                continue
 
-        path_to_products = os.path.join(input_dir, catalog, mode, 'default')
+            dirs = [d for d in os.listdir(path_to_products) if os.path.isdir(os.path.join(path_to_products, d))]
+            dirs.sort()
 
-        # List all product dirtecories
-        dirs = [d for d in os.listdir(path_to_products) if os.path.isdir(os.path.join(path_to_products, d))]
-        dirs.sort()
+            best_run_per_product = []
 
-        best_run_per_product = []
 
-        for dir in dirs:
-            # List all run directories in the product directory
-            product_dir = os.path.join(path_to_products, dir)
-            run_dirs = [d for d in os.listdir(product_dir) if os.path.isdir(os.path.join(product_dir, d))]
-            best_run_dir = None
-            best_run_advantage = None
-            for run_dir in run_dirs:
-                run_dir_path = os.path.join(product_dir, run_dir)
-                if os.path.exists(os.path.join(run_dir_path, 'eval.json')):
-                    with open(os.path.join(run_dir_path, 'eval.json'), 'r') as f:
+            for dir in dirs:
+                # List all run directories in the product directory
+                product_dir = os.path.join(path_to_products, dir)
+                run_dirs = [d for d in os.listdir(product_dir) if os.path.isdir(os.path.join(product_dir, d))]
+                best_run_dir = None
+                best_run_advantage = None
+                for run_dir in run_dirs:
+                    run_dir_path = os.path.join(product_dir, run_dir)
+                    if os.path.exists(os.path.join(run_dir_path, 'eval.json')):
+                        with open(os.path.join(run_dir_path, 'eval.json'), 'r') as f:
+                            eval = json.load(f)
+                            if best_run_advantage is None or (eval['advantage']['1'] - eval['advantage']['-1'] > best_run_advantage):
+                                best_run_dir = run_dir
+                                best_run_advantage = eval['advantage']['1'] - eval['advantage']['-1']
+                best_run_per_product.append((product_dir, best_run_dir, best_run_advantage))
+
+                # if best_run_dir is not None:
+                #     with open(os.path.join(product_dir, best_run_dir, 'eval.json'), 'r') as f:
+                #         eval = json.load(f)
+                #         ranks_df = pd.concat([ranks_df, pd.DataFrame({'Catalog': catalog_names[catalog], 'Before': eval['rank_list'],
+                #                                         'After': eval['rank_list_opt'],'Product': eval['target_product']})], ignore_index=True)
+                        
+            # Sort by advantage in descending order keeping None at the end
+            best_run_per_product.sort(key=lambda x: x[2] if x[2] is not None else -np.inf, reverse=True)
+
+            for product_dir, best_run_dir, best_run_advantage in best_run_per_product[:num_products]:
+                if best_run_dir is not None:
+                    with open(os.path.join(product_dir, best_run_dir, 'eval.json'), 'r') as f:
                         eval = json.load(f)
-                        if best_run_advantage is None or (eval['advantage']['1'] - eval['advantage']['-1'] > best_run_advantage):
-                            best_run_dir = run_dir
-                            best_run_advantage = eval['advantage']['1'] - eval['advantage']['-1']
-            best_run_per_product.append((product_dir, best_run_dir, best_run_advantage))
+                        display_label = f"{display_name} ({type_path.capitalize()})" if type_path != 'default' else display_name
+                        ranks_df = pd.concat([ranks_df, pd.DataFrame({
+                            'Catalog': display_label,
+                            'Before': eval['rank_list'],
+                            'After': eval['rank_list_opt'],
+                            'Product': eval['target_product']
+                        })], ignore_index=True)
 
-            # if best_run_dir is not None:
-            #     with open(os.path.join(product_dir, best_run_dir, 'eval.json'), 'r') as f:
-            #         eval = json.load(f)
-            #         ranks_df = pd.concat([ranks_df, pd.DataFrame({'Catalog': catalog_names[catalog], 'Before': eval['rank_list'],
-            #                                         'After': eval['rank_list_opt'],'Product': eval['target_product']})], ignore_index=True)
-                    
-        # Sort by advantage in descending order keeping None at the end
-        best_run_per_product.sort(key=lambda x: x[2] if x[2] is not None else -np.inf, reverse=True)
-
-        for product_dir, best_run_dir, best_run_advantage in best_run_per_product[:num_products]:
-            if best_run_dir is not None:
-                with open(os.path.join(product_dir, best_run_dir, 'eval.json'), 'r') as f:
-                    eval = json.load(f)
-                    ranks_df = pd.concat([ranks_df, pd.DataFrame({'Catalog': catalog_names[catalog], 'Before': eval['rank_list'],
-                                                    'After': eval['rank_list_opt'],'Product': eval['target_product']})], ignore_index=True)
-                    # if len(eval['rank_list']) < 200:
-                    #     print(product_dir, best_run_dir, eval['target_product'], len(eval['rank_list']))
+                        # if len(eval['rank_list']) < 200:
+                        #     print(product_dir, best_run_dir, eval['target_product'], len(eval['rank_list']))
 
     print(f'Rank distribution for {mode} mode:')
-    # size of ranks_df per catalog
     print(ranks_df.groupby('Catalog').size())
+
     # Boxplot with distribution of ranks over best executions for all 10 producs
     plt.figure(figsize=(12, 8))
     distribution_ranks_df = ranks_df.copy()
@@ -120,15 +138,19 @@ for mode in ['self', 'transfer']:
     plt.savefig(os.path.join(input_dir, mode + '_p' + str(num_products) + '_rank_dist_mean_per_prod.png'))
 
 
-    ## calculate p-value for each catalog using Mann-Whitney U test (as samples are not paired)
-    for catalog in catalog_names.keys():
-        before = ranks_df[ranks_df['Catalog'] == catalog_names[catalog]]['Before'].dropna().to_numpy().astype(float)
-        after = ranks_df[ranks_df['Catalog'] == catalog_names[catalog]]['After'].dropna().to_numpy().astype(float)
+    # gets all unique combinations of cataloges and prompt types (custom or default)
+    catalog_display_names = set(ranks_df['Catalog'].unique())
+    
+
+    # calculate p-value for each catalog using Mann-Whitney U test (as samples are not paired)
+    for display_name in catalog_display_names:
+        before = ranks_df[ranks_df['Catalog'] == display_name]['Before'].dropna().to_numpy().astype(float)
+        after = ranks_df[ranks_df['Catalog'] == display_name]['After'].dropna().to_numpy().astype(float)
+        
         statistic, p_value = stats.mannwhitneyu(before, after, alternative='two-sided')
-        print(f'Catalog: {catalog_names[catalog]}')
+        print(f'Catalog: {display_name}')
         print(f'Statistic: {statistic}')
         print(f'p-value: {p_value}')
-        # now common language effect size (CLES) 
         print(f'CLES: {statistic / (len(before) * len(after))}')
        
     # Mean Reciprocal Rank (MRR)
@@ -149,17 +171,16 @@ for mode in ['self', 'transfer']:
 
     # Plot advantage for all catalogs
     advantage_df = pd.DataFrame(columns=['Catalog', 'Advantage', 'No Advantage', 'Disadvantage', 'Net Advantage'])
-    for catalog in catalog_names.keys():
+    for display_name in catalog_display_names:
         advantage = {'Advantage': 0, 'No Advantage': 0, 'Disadvantage': 0, 'Total': 0}
-        for index, row in ranks_df.iterrows():
-            if row['Catalog'] == catalog_names[catalog]:
-                if row['Before'] > row['After']:
-                    advantage['Advantage'] += 1
-                elif row['Before'] == row['After']:
-                    advantage['No Advantage'] += 1
-                else:
-                    advantage['Disadvantage'] += 1
-                advantage['Total'] += 1
+        for index, row in ranks_df[ranks_df['Catalog'] == display_name].iterrows():
+            if row['Before'] > row['After']:
+                advantage['Advantage'] += 1
+            elif row['Before'] == row['After']:
+                advantage['No Advantage'] += 1
+            else:
+                advantage['Disadvantage'] += 1
+            advantage['Total'] += 1
 
         advantage_percentage = advantage['Advantage'] / advantage['Total']
         no_advantage_percentage = advantage['No Advantage'] / advantage['Total']
@@ -176,13 +197,13 @@ for mode in ['self', 'transfer']:
         net_advantage_percentage = advantage_percentage - disadvantage_percentage
         net_advantage_error = np.sqrt(advantage_error ** 2 + disadvantage_error ** 2)
 
-        advantage_df = pd.concat([advantage_df, pd.DataFrame({'Catalog': catalog_names[catalog], 'Advantage': advantage_percentage,
+        advantage_df = pd.concat([advantage_df, pd.DataFrame({'Catalog': display_name, 'Advantage': advantage_percentage,
                                                             'No Advantage': no_advantage_percentage, 'Disadvantage': disadvantage_percentage,
                                                             'Net Advantage': net_advantage_percentage}, index=[0])], ignore_index=True)
-        advantage_df = pd.concat([advantage_df, pd.DataFrame({'Catalog': catalog_names[catalog], 'Advantage': advantage_percentage - advantage_error,
+        advantage_df = pd.concat([advantage_df, pd.DataFrame({'Catalog': display_name, 'Advantage': advantage_percentage - advantage_error,
                                                             'No Advantage': no_advantage_percentage - no_advantage_error, 'Disadvantage': disadvantage_percentage - disadvantage_error,
                                                             'Net Advantage': net_advantage_percentage - net_advantage_error}, index=[0])], ignore_index=True)
-        advantage_df = pd.concat([advantage_df, pd.DataFrame({'Catalog': catalog_names[catalog], 'Advantage': advantage_percentage + advantage_error,
+        advantage_df = pd.concat([advantage_df, pd.DataFrame({'Catalog': display_name, 'Advantage': advantage_percentage + advantage_error,
                                                             'No Advantage': no_advantage_percentage + no_advantage_error, 'Disadvantage': disadvantage_percentage + disadvantage_error,
                                                             'Net Advantage': net_advantage_percentage + net_advantage_error}, index=[0])], ignore_index=True)
         
@@ -246,7 +267,7 @@ for mode in ['self', 'transfer']:
         disadvantage = 0
         total = 0
         ranks_product_df = ranks_df[ranks_df['Product'] == product]
-        catalog = ranks_product_df['Catalog'].iloc[0]
+        catalog_display = ranks_product_df['Catalog'].iloc[0]
         for index, row in ranks_product_df.iterrows():
             if row['Before'] > row['After']:
                 advantage += 1
@@ -256,7 +277,7 @@ for mode in ['self', 'transfer']:
         net_advantages.append({
             'Product': product,
             'Net Advantage': ((advantage - disadvantage) / total) * 100,
-            'Catalog': catalog
+            'Catalog': catalog_display
         })
 
     # for adv in net_advantages:
