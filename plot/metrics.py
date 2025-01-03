@@ -22,11 +22,32 @@ args = argparser.parse_args()
 input_dir = args.input_dir
 num_products = args.num_products
 
+## THESE PLOT ALL AVAILABLE RESULTS
+
 catalog_names = {
-    'coffee_machines': 'Coffee Machines',
-    'cameras': 'Cameras',
-    'books': 'Books',
-    'election_articles': 'Political Articles',
+    'coffee_machines': ('Coffee Machines', ['default']),
+    'cameras': ('Cameras', ['default']),
+    'books': ('Books', ['default']),
+    'election_articles_incognito': ('Political Articles', ['default','custom']),
+    'election_articles': ('Named Political Articles', ['default']),
+}
+
+## THESE PLOT THE RESULTS WITH THE OLD NON INCOGNITO POLITICAL ARTICLES
+catalog_names = {
+    'coffee_machines': ('Coffee Machines', ['default']),
+    'cameras': ('Cameras', ['default']),
+    'books': ('Books', ['default']),
+    # 'election_articles_incognito': ('Political Articles', ['default']),
+    'election_articles': ('Named Political Articles', ['default']),
+}
+
+## THESE PLOT THE RESULTS WITH THE INCOGNITO POLITICAL ARTICLES (better results)
+catalog_names = {
+    'coffee_machines': ('Coffee Machines', ['default']),
+    'cameras': ('Cameras', ['default']),
+    'books': ('Books', ['default']),
+    'election_articles_incognito': ('Political Articles', ['default']),
+    # 'election_articles': ('Named Political Articles', ['default']),
 }
 
 mode_llm = {
@@ -40,43 +61,45 @@ ranks_df = pd.DataFrame(columns=['LLM', 'Catalog', 'Product', 'Before', 'After']
 
 for mode in ['self', 'transfer']:
     for catalog in catalog_names.keys():
-        path_to_products = os.path.join(input_dir, catalog, mode, 'default')
+        for prompt_type in catalog_names[catalog][1]:
+            path_to_products = os.path.join(input_dir, catalog, mode, prompt_type)
 
-        # List all product dirtecories
-        dirs = [d for d in os.listdir(path_to_products) if os.path.isdir(os.path.join(path_to_products, d))]
-        dirs.sort()
+            # List all product dirtecories
+            dirs = [d for d in os.listdir(path_to_products) if os.path.isdir(os.path.join(path_to_products, d))]
+            dirs.sort()
 
-        best_run_per_product = []
+            best_run_per_product = []
 
-        for dir in dirs:
-            # List all run directories in the product directory
-            product_dir = os.path.join(path_to_products, dir)
-            run_dirs = [d for d in os.listdir(product_dir) if os.path.isdir(os.path.join(product_dir, d))]
-            best_run_dir = None
-            best_run_net_advantage = None
+            for dir in dirs:
+                # List all run directories in the product directory
+                product_dir = os.path.join(path_to_products, dir)
+                run_dirs = [d for d in os.listdir(product_dir) if os.path.isdir(os.path.join(product_dir, d))]
+                best_run_dir = None
+                best_run_net_advantage = None
 
-            # Find the best run directory based on the advantage
-            for run_dir in run_dirs:
-                run_dir_path = os.path.join(product_dir, run_dir)
-                if os.path.exists(os.path.join(run_dir_path, 'eval.json')):
-                    with open(os.path.join(run_dir_path, 'eval.json'), 'r') as f:
+                # Find the best run directory based on the advantage
+                for run_dir in run_dirs:
+                    run_dir_path = os.path.join(product_dir, run_dir)
+                    if os.path.exists(os.path.join(run_dir_path, 'eval.json')):
+                        with open(os.path.join(run_dir_path, 'eval.json'), 'r') as f:
+                            eval = json.load(f)
+                            if best_run_net_advantage is None or (eval['advantage']['1'] - eval['advantage']['-1'] > best_run_net_advantage):
+                                best_run_dir = run_dir
+                                best_run_net_advantage = eval['advantage']['1'] - eval['advantage']['-1']
+                best_run_per_product.append((product_dir, best_run_dir, best_run_net_advantage))
+                        
+            # Sort by net advantage in descending order keeping None at the end
+            best_run_per_product.sort(key=lambda x: x[2] if x[2] is not None else -np.inf, reverse=True)
+            # print(best_run_per_product)
+
+            for product_dir, best_run_dir, best_run_net_advantage in best_run_per_product[:num_products]:
+                if best_run_dir is not None:
+                    with open(os.path.join(product_dir, best_run_dir, 'eval.json'), 'r') as f:
                         eval = json.load(f)
-                        if best_run_net_advantage is None or (eval['advantage']['1'] - eval['advantage']['-1'] > best_run_net_advantage):
-                            best_run_dir = run_dir
-                            best_run_net_advantage = eval['advantage']['1'] - eval['advantage']['-1']
-            best_run_per_product.append((product_dir, best_run_dir, best_run_net_advantage))
-                    
-        # Sort by net advantage in descending order keeping None at the end
-        best_run_per_product.sort(key=lambda x: x[2] if x[2] is not None else -np.inf, reverse=True)
-        # print(best_run_per_product)
-
-        for product_dir, best_run_dir, best_run_net_advantage in best_run_per_product[:num_products]:
-            if best_run_dir is not None:
-                with open(os.path.join(product_dir, best_run_dir, 'eval.json'), 'r') as f:
-                    eval = json.load(f)
-                    ranks_df = pd.concat([ranks_df, pd.DataFrame({'LLM': mode_llm[mode], 'Catalog': catalog_names[catalog],
-                                                                  'Product': eval['target_product'], 'Before': eval['rank_list'],
-                                                                  'After': eval['rank_list_opt']})], ignore_index=True)
+                        catalog_name = catalog_names[catalog][0] if prompt_type == 'default' else catalog_names[catalog][0] + " (custom)"
+                        ranks_df = pd.concat([ranks_df, pd.DataFrame({'LLM': mode_llm[mode], 'Catalog': catalog_name,
+                                                                    'Product': eval['target_product'], 'Before': eval['rank_list'],
+                                                                    'After': eval['rank_list_opt']})], ignore_index=True)
 
 combined_df = ranks_df.copy()
 combined_df['Catalog'] = 'Combined'
@@ -172,18 +195,157 @@ fig.savefig(os.path.join(input_dir, 'p' + str(num_products) + '_na_mrr.png'))
 
 
 
+for mode in ['self', 'transfer']:
+    ranks_df_mode_constrained = ranks_df[ranks_df['LLM'] == mode_llm[mode]]
+    reciprocal_ranks_df_mode_constrained = reciprocal_ranks_df[reciprocal_ranks_df['LLM'] == mode_llm[mode]]
+    advantage_df_mode_constrained = advantage_df[advantage_df['LLM'] == mode_llm[mode]]
+    
+    top_k_df_mode_constrained = ranks_df_mode_constrained.copy()
+    top_k_df_mode_constrained['Before'] = top_k_df_mode_constrained['Before'].apply(lambda x: 1 if x <= 1 else 0)
+    top_k_df_mode_constrained['After'] = top_k_df_mode_constrained['After'].apply(lambda x: 1 if x <= 1 else 0)
+    top_k_df_mode_constrained['Before'] *= 100
+    top_k_df_mode_constrained['After'] *= 100
+    top_k_df_mode_constrained = pd.melt(top_k_df_mode_constrained, id_vars=['Catalog'], value_vars=['Before', 'After'],
+                    var_name='Condition', value_name='Rank 1 Percentage')
+    
+    # (1) Plot Rank 1 Percentage
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x='Catalog', y='Rank 1 Percentage', hue='Condition', data=top_k_df_mode_constrained)
+    plt.ylabel('Percentage', fontsize=22)
+    plt.title('Rank-1 Percentage', fontsize=24)
+    plt.legend(fontsize=18)
+    plt.xlabel('')
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.join(input_dir, mode + '_p' + str(num_products) + '_rank1.png'))
+
+
+    # (2) Plot MRR, Top-k, and Advantage in a single figure
+    fig, axes = plt.subplots(2, 1, figsize=(10, 10))
+    sns.barplot(x='Catalog', y='Net Advantage', data=advantage_df_mode_constrained, estimator='median', errorbar='ci', ax=axes[0], color='tab:green')
+    axes[0].set_ylabel('Percentage', fontsize=22)
+    axes[0].set_title('Net Advantage', fontsize=24)
+    axes[0].set_xlabel('')
+    axes[0].tick_params(axis='x', labelsize=16)
+    axes[0].tick_params(axis='y', labelsize=16)
+
+    sns.barplot(x='Catalog', y='MRR', hue='Condition', data=reciprocal_ranks_df_mode_constrained, ax=axes[1])
+    axes[1].set_ylabel('MRR', fontsize=22)
+    axes[1].set_title('Mean Reciprocal Rank (MRR)', fontsize=24)
+    axes[1].legend(fontsize=18)
+    axes[1].set_xlabel('')
+    axes[1].tick_params(axis='x', labelsize=16)
+    axes[1].tick_params(axis='y', labelsize=16)
+
+    plt.tight_layout(pad=2)
+    fig.savefig(os.path.join(input_dir, mode + '_p' + str(num_products) + '_combined_plots.png'))
+
+
+
+    # (3) Plot the rank distribution for all catalogs before and after adding the STS
+    axes_rank_dist = axes_both_modes[0 if mode == 'self' else 1, 0]
+
+    # Remove the combined catalog
+    ranks_df_temp = ranks_df_mode_constrained[ranks_df_mode_constrained['Catalog'] != 'Combined']
+    rank_barplot(ranks_df_temp['Before'].tolist(), ranks_df_temp['After'].tolist(), 10,
+                    axes=axes_rank_dist, title_fontsize=26, plot_fontsize=24,
+                    plot_title=f'Rank Distribution for {("Llama 2" if mode == "self" else "GPT-3.5")}')
+
+    # Plot the net advantage frequency histogram for all products in all catalogs
+    net_advantages = []
+    product_names = ranks_df_mode_constrained['Product'].unique()
+    for product in product_names:
+        advantage = 0
+        disadvantage = 0
+        total = 0
+        ranks_product_df = ranks_df_mode_constrained[(ranks_df_mode_constrained['Product'] == product) & (ranks_df_mode_constrained['Catalog'] != 'Combined')]
+        catalog = ranks_product_df['Catalog'].iloc[0]
+        for index, row in ranks_product_df.iterrows():
+            if row['Before'] > row['After']:
+                advantage += 1
+            elif row['Before'] < row['After']:
+                disadvantage += 1
+            total += 1
+        net_advantages.append({
+            'Product': product,
+            'Net Advantage': ((advantage - disadvantage) / total) * 100,
+            'Catalog': catalog
+        })
+
+
+    net_advantage_positive = [adv['Net Advantage'] for adv in net_advantages if adv['Net Advantage'] >= 0]
+    net_advantage_negative = [adv['Net Advantage'] for adv in net_advantages if adv['Net Advantage'] < 0]
+
+    min_net_adv = min([adv['Net Advantage'] for adv in net_advantages])
+    max_net_adv = max([adv['Net Advantage'] for adv in net_advantages])
+
+    axes_net_adv_freq = axes_both_modes[0 if mode == 'self' else 1, 1]
+    sns.histplot(net_advantage_positive, label='Positive', bins=25, color='tab:green', ax=axes_net_adv_freq, kde=False, binrange=(0, 100))
+    sns.histplot(net_advantage_negative, label='Negative', bins=25, color='tab:red', ax=axes_net_adv_freq, kde=False, binrange=(-100, 0))
+    axes_net_adv_freq.set_xlabel('Net Advantage (%)', fontsize=26)
+    axes_net_adv_freq.set_ylabel('Frequency', fontsize=26)
+    axes_net_adv_freq.set_title(f'Frequency of Net Advantages for {("Llama 2" if mode == "self" else "GPT-3.5")}', fontsize=26)
+    axes_net_adv_freq.tick_params(axis='x', labelsize=24)
+    axes_net_adv_freq.tick_params(axis='y', labelsize=24)
+    axes_net_adv_freq.legend(fontsize=24)
+    axes_net_adv_freq.set_xlim(max(-100, min_net_adv - 5), min(100, max_net_adv + 5))
+
+    # Plot the net advantage values in decreasing order
+    net_advantages = [adv for adv in net_advantages if adv['Catalog'] != 'Political Articles']
+    net_advantages.sort(key=lambda x: x['Net Advantage'], reverse=True)
+
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(range(len(net_advantages)), [adv['Net Advantage'] for adv in net_advantages], color=['tab:green' if adv['Net Advantage'] >= 0 else 'tab:red' for adv in net_advantages])
+    plt.xticks(range(len(net_advantages)), [''] * len(net_advantages))  # Remove x-ticks
+    for bar, adv in zip(bars, net_advantages):
+        plt.text(0.1 + (bar.get_x() + bar.get_width() / 2), 1.5, adv['Product'], ha='center', va='bottom', fontsize=12, rotation=90)
+    plt.xlabel('Products', fontsize=16)
+    plt.ylabel('Net Advantage (%)', fontsize=16)
+
+    plt.title('Net Advantage for all Products', fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.join(input_dir, mode + '_p' + str(num_products) + '_net_adv.png'))
+
+fig_both_modes.tight_layout()
+fig_both_modes.savefig(os.path.join(input_dir, 'p' + str(num_products) + '_both_modes.png'))
+
+
 
 
 
 
 exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ##################### IGNORE BELOW #####################
 # reciprocal_ranks_df = pd.melt(reciprocal_ranks_df, id_vars=['Catalog'], value_vars=['Before', 'After'], 
 #                             var_name='Condition', value_name='MRR')
 
 print(f'Rank distribution for {mode} mode:')
 print(ranks_df.groupby('Catalog').size())
-# Boxplot with distribution of ranks over best executions for all 10 producs
+# Boxplot with distribution of ranks over best executions for all 10 products
 plt.figure(figsize=(12, 8))
 distribution_ranks_df = ranks_df.copy()
 distribution_ranks_df = pd.melt(distribution_ranks_df, id_vars=['Catalog'], value_vars=['Before', 'After'], var_name='Condition', value_name='Rank')
@@ -257,7 +419,7 @@ top_k_df = pd.melt(top_k_df, id_vars=['Catalog'], value_vars=['Before', 'After']
 
 # Plot MRR, Top-k, and Advantage in a single figure
 fig, axes = plt.subplots(2, 1, figsize=(10, 10))
-
+print(advantage_df)
 sns.barplot(x='Catalog', y='Percentage', hue='Condition', data=advantage_df, estimator='median', errorbar='ci', ax=axes[0], palette=['tab:green'])
 axes[0].set_ylabel('Percentage', fontsize=22)
 axes[0].set_title('Net Advantage', fontsize=24)

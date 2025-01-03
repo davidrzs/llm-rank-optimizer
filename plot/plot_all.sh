@@ -1,4 +1,4 @@
-!/bin/bash
+#!/bin/bash
 
 declare -A catalog_types
 catalog_types=(
