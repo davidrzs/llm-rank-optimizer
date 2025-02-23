@@ -5,4 +5,3 @@ logs
 key.txt
 *.pth
 __pycache__
-*/done.txt
